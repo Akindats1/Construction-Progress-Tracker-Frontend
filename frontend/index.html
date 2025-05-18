@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Construction Progress Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🏗️ Construction Progress Tracker</h1>
+        
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search tasks...">
+        </div>
+
+        <div class="card">
+            <h2>➕ Add New Task</h2>
+            <form id="addTaskForm">
+                <div class="form-group">
+                    <label for="name">Task Name</label>
+                    <input type="text" id="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="assigned_to">Assigned To</label>
+                    <input type="text" id="assigned_to" required>
+                </div>
+                <div class="form-group">
+                    <label for="deadline">Deadline</label>
+                    <input type="date" id="deadline" min="">
+                </div>
+                <div class="form-group">
+                    <label for="priority">Priority</label>
+                    <select id="priority" required>
+                        <option value="">Select priority</option>
+                        <option>Low</option>
+                        <option>Medium</option>
+                        <option>High</option>
+                    </select>
+                </div>
+                <button type="submit">Add Task</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>📋 Tasks</h2>
+            <div id="taskList" class="task-list">
+                <div class="loading">Loading tasks...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/tasks';
+        let currentTasks = [];
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `🔔 ${message}`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        function renderTasks(tasks) {
+            const taskList = document.getElementById('taskList');
+            taskList.innerHTML = tasks.length ? '' : '<p>No tasks found</p>';
+            
+            tasks.forEach(task => {
+                const taskEl = document.createElement('div');
+                taskEl.className = 'task';
+                taskEl.innerHTML = `
+                    <div class="task-header">
+                        <h3>${task.name}</h3>
+                        <span class="priority ${task.priority.toLowerCase()}">${task.priority}</span>
+                    </div>
+                    <div class="task-body">
+                        <div class="progress-container">
+                            <input type="number" min="0" max="100" value="${task.progress}" 
+                                   data-id="${task.id}" class="progress-input">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${task.progress}%"></div>
+                            </div>
+                        </div>
+                        <div class="task-details">
+                            <p>👤 ${task.assigned_to}</p>
+                            ${task.deadline ? `<p>📅 ${task.deadline}</p>` : ''}
+                        </div>
+                        <button class="delete-btn" data-id="${task.id}">Delete</button>
+                    </div>
+                `;
+                taskList.appendChild(taskEl);
+            });
+
+            document.querySelectorAll('.progress-input').forEach(input => {
+                input.addEventListener('change', handleProgressUpdate);
+            });
+
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', handleDelete);
+            });
+        }
+
+        async function handleProgressUpdate(e) {
+            const id = e.target.dataset.id;
+            const progress = parseInt(e.target.value);
+            
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ progress })
+                });
+                
+                if (!response.ok) throw new Error('Failed to update');
+                showNotification('Progress updated!', 'success');
+                await fetchTasks();
+            } catch (error) {
+                showNotification(error.message, 'error');
+                e.target.value = currentTasks.find(t => t.id == id).progress;
+            }
+        }
+
+        async function handleDelete(e) {
+            if (!confirm('Delete this task permanently?')) return;
+            
+            try {
+                const response = await fetch(`${API_URL}/${e.target.dataset.id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) throw new Error('Delete failed');
+                showNotification('Task deleted', 'success');
+                await fetchTasks();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        }
+
+        async function fetchTasks() {
+            try {
+                document.getElementById('taskList').innerHTML = '<div class="loading">⏳ Loading tasks...</div>';
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('Failed to load tasks');
+                currentTasks = await response.json();
+                renderTasks(currentTasks);
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = currentTasks.filter(task => 
+                task.name.toLowerCase().includes(term) ||
+                task.assigned_to.toLowerCase().includes(term)
+            );
+            renderTasks(filtered);
+        });
+
+        document.getElementById('addTaskForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                name: document.getElementById('name').value.trim(),
+                assigned_to: document.getElementById('assigned_to').value.trim(),
+                deadline: document.getElementById('deadline').value,
+                priority: document.getElementById('priority').value
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to add task');
+                
+                showNotification('Task added successfully!', 'success');
+                document.getElementById('addTaskForm').reset();
+                await fetchTasks();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        });
+
+        document.getElementById('deadline').min = new Date().toISOString().split('T')[0];
+        fetchTasks();
+    </script>
+</body>
+</html>
